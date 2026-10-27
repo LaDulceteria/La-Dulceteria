@@ -4,16 +4,16 @@
   "name": "La Dulceteria Tiendita Escolar",
   "short_name": "La Dulceteria",
   "description": "Consulta el estado de cuenta escolar de La Dulceteria.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#fff8fc",
   "theme_color": "#f7b8d5",
   "icons": [
     {
-      "src": "./descargar.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "./dulceteria_icon_180.png",
+      "sizes": "180x180",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
