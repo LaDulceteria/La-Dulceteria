@@ -14,10 +14,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="La Dulceteria">
 
-  <!-- Iconos y aplicación instalable -->
-  <link rel="manifest" href="./manifiesto.webmanifiesto">
+  <!-- Manifiesto e iconos -->
+  <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./descargar.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="./dulceteria_icon_180.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./dulceteria_icon_180.png">
 
   <style>
     * {
@@ -124,17 +124,5 @@
       La Dulceteria Tiendita Escolar 💗
     </p>
   </main>
-
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", function () {
-        navigator.serviceWorker
-          .register("./sw.js")
-          .catch(function (error) {
-            console.log("No se pudo registrar el service worker:", error);
-          });
-      });
-    }
-  </script>
 </body>
 </html>
