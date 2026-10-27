@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7b8d5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="La Dulceteria">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>La Dulceteria</title>
+  <script>
+    // Abre directamente el sistema actual de consulta de estados de cuenta.
+    // No se agregan funciones de caja, cobro ni administración en esta página.
+    const DESTINO = 'https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec';
+    window.location.replace(DESTINO);
+  </script>
+</head>
+<body>
+  <p>Abriendo el estado de cuenta de La Dulceteria…</p>
+  <p><a href="https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec">Toca aquí si no abre automáticamente.</a></p>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>

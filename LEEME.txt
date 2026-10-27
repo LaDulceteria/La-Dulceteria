@@ -1,0 +1,15 @@
+LA DULCETERIA — APP WEB INSTALABLE (PWA)
+
+Este paquete es un prototipo inicial. No tiene funciones de cobro ni administración; redirige al enlace de consulta proporcionado.
+
+ARCHIVOS
+- index.html: abre directamente Google Apps Script.
+- manifest.webmanifest: nombre y configuración de instalación.
+- sw.js: service worker básico.
+- icon.svg: ícono provisional; reemplazar por el logotipo oficial para coincidir con la marca.
+
+IMPORTANTE
+1. Para que la instalación PWA funcione, debe publicarse en un hosting HTTPS. GitHub Pages puede servir para esto gratis.
+2. El ícono SVG es provisional y no es el archivo original del logotipo. Para usar el logo oficial, hay que añadir versiones PNG adecuadas (idealmente 192x192 y 512x512) y actualizar el manifest.
+3. La página solo abre el enlace existente. La privacidad de las cuentas depende de los controles implementados en Google Apps Script; antes de distribuirla a todos los clientes, probar con cuentas de prueba y confirmar que cada familia solo ve su propio estado de cuenta.
+4. En iPhone, la instalación se hace desde Safari > Compartir > Añadir a pantalla de inicio. En Android, Chrome > menú > Instalar aplicación o Añadir a pantalla de inicio.
