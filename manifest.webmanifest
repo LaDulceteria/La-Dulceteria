@@ -1,20 +1,954 @@
 
-{
-  "id": "./",
-  "name": "La Dulceteria Tiendita Escolar",
-  "short_name": "La Dulceteria",
-  "description": "Consulta el estado de cuenta escolar de La Dulceteria.",
-  "start_url": "./",
-  "scope": "./",
-  "display": "standalone",
-  "background_color": "#fff8fc",
-  "theme_color": "#f7b8d5",
-  "icons": [
-    {
-      "src": "./dulceteria_icon_180.png",
-      "sizes": "180x180",
-      "type": "image/png",
-      "purpose": "any"
+/**
+ * LA DULCETERIA
+ * Consulta de saldos y gestión de depósitos.
+ */
+
+const SPREADSHEET_ID = "1GRZu5k7BMe_kroge8hVINs1hJZ1Vo8tOVUK4lwu4Kso";
+const STUDENTS_SHEET = "Alumnos";
+const MOVEMENTS_SHEET = "Movimientos";
+const DEPOSITS_SHEET = "Depositos";
+const RECEIPT_FOLDER_NAME = "Comprobantes depósitos La Dulceteria";
+const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
+
+// =====================================================
+// MENÚ Y PANTALLA WEB
+// =====================================================
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile("Index")
+    .setTitle("Mi cuenta | La Dulceteria")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("Depósitos")
+    .addItem("Ver solicitudes pendientes", "verDepositosPendientes")
+    .addItem("Autorizar depósito por folio", "autorizarDepositoPorFolio")
+    .addItem("Rechazar depósito por folio", "rechazarDepositoPorFolio")
+    .addToUi();
+}
+
+// =====================================================
+// CONSULTA DE ESTADO DE CUENTA
+// =====================================================
+
+function consultarCuenta(cuentaInput, codigoInput) {
+  const validacion = validarCuentaPrivada_(cuentaInput, codigoInput);
+  const cuenta = validacion.cuenta;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const alumnos = ss.getSheetByName(STUDENTS_SHEET);
+  const movimientos = ss.getSheetByName(MOVEMENTS_SHEET);
+
+  if (!alumnos || !movimientos) {
+    throw new Error("No se encontraron las pestañas necesarias.");
+  }
+
+  const studentRows = alumnos
+    .getRange(4, 1, alumnos.getLastRow() - 3, 8)
+    .getDisplayValues();
+
+  const found = studentRows.find(
+    r => String(r[0]).trim() === cuenta
+  );
+
+  if (!found) {
+    throw new Error("No se encontró la cuenta.");
+  }
+
+  const name = String(found[1] || "Alumno");
+  const group = String(found[2] || "");
+  const starting = parseMoney(found[3]);
+  const depositsTotal = parseMoney(found[4]);
+  const purchasesTotal = parseMoney(found[5]);
+  const balance = parseMoney(found[6]);
+
+  let history = [];
+  const lastRow = movimientos.getLastRow();
+
+  if (lastRow >= 4) {
+    const rows = movimientos
+      .getRange(4, 1, lastRow - 3, 8)
+      .getValues();
+
+    history = rows
+      .filter(r => String(r[1]).trim() === cuenta)
+      .map(r => ({
+        date: formatDate(r[0]),
+        operation: String(r[3] || ""),
+        product: String(r[4] || ""),
+        quantity: Number(r[5] || 0),
+        amount: Number(r[6] || 0),
+        folio: String(r[7] || "")
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 50);
+  }
+
+  return {
+    name,
+    group,
+    account: maskAccount(cuenta),
+    starting,
+    depositsTotal,
+    purchasesTotal,
+    balance,
+    history,
+    updatedAt: Utilities.formatDate(
+      new Date(),
+      Session.getScriptTimeZone(),
+      "dd/MM/yyyy HH:mm"
+    )
+  };
+}
+
+// =====================================================
+// VALIDACIÓN DE CUENTA Y CÓDIGO PRIVADO
+// =====================================================
+
+function validarCuentaPrivada_(cuentaInput, codigoInput) {
+  const cuenta = String(cuentaInput || "").trim();
+  const codigo = String(codigoInput || "").trim();
+
+  if (!cuenta || !codigo) {
+    throw new Error("Escribe tu cuenta y código privado.");
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = ss.getSheetByName(STUDENTS_SHEET);
+
+  if (!sh || sh.getLastRow() < 4) {
+    throw new Error("No se pudo validar la cuenta.");
+  }
+
+  const rows = sh
+    .getRange(4, 1, sh.getLastRow() - 3, 8)
+    .getDisplayValues();
+
+  const found = rows.find(
+    r => String(r[0]).trim() === cuenta
+  );
+
+  if (
+    !found ||
+    !constantTimeEqual(
+      String(found[7] || "").trim(),
+      codigo
+    )
+  ) {
+    throw new Error(
+      "No pudimos validar los datos. Revisa tu cuenta y código."
+    );
+  }
+
+  return {
+    cuenta,
+    nombre: String(found[1] || "Alumno")
+  };
+}
+
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+
+  let diff = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+
+  return diff === 0;
+}
+
+function parseMoney(value) {
+  if (typeof value === "number") return value;
+
+  const n = Number(
+    String(value || "0").replace(/[$,\s]/g, "")
+  );
+
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatDate(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(
+      value,
+      Session.getScriptTimeZone(),
+      "dd/MM/yyyy"
+    );
+  }
+
+  return String(value || "");
+}
+
+function maskAccount(value) {
+  const s = String(value);
+  return s.length <= 2 ? s : "••••" + s.slice(-2);
+}
+
+// =====================================================
+// CONSULTAR MOVIMIENTOS POR PERIODO
+// =====================================================
+
+function consultarMovimientosPorFecha(
+  cuentaInput,
+  codigoInput,
+  fechaDesde,
+  fechaHasta
+) {
+  const validacion = validarCuentaPrivada_(
+    cuentaInput,
+    codigoInput
+  );
+
+  const cuenta = validacion.cuenta;
+  const desde = String(fechaDesde || "").trim();
+  const hasta = String(fechaHasta || "").trim();
+
+  if (!desde || !hasta) {
+    throw new Error("Selecciona ambas fechas.");
+  }
+
+  if (desde > hasta) {
+    throw new Error(
+      "La fecha inicial no puede ser posterior a la final."
+    );
+  }
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const movimientos = ss.getSheetByName(MOVEMENTS_SHEET);
+
+  if (!movimientos) {
+    throw new Error("No se encontró la hoja Movimientos.");
+  }
+
+  const inicio = new Date(desde + "T00:00:00");
+  const fin = new Date(hasta + "T23:59:59.999");
+  const ultimaFila = movimientos.getLastRow();
+
+  if (ultimaFila < 4) return [];
+
+  const filas = movimientos
+    .getRange(4, 1, ultimaFila - 3, 8)
+    .getValues();
+
+  return filas
+    .filter(fila => {
+      if (String(fila[1]).trim() !== cuenta) return false;
+
+      const fecha = fila[0] instanceof Date
+        ? fila[0]
+        : new Date(fila[0]);
+
+      return !isNaN(fecha.getTime()) &&
+        fecha >= inicio &&
+        fecha <= fin;
+    })
+    .map(fila => ({
+      fecha: formatDate(fila[0]),
+      operacion: String(fila[3] || ""),
+      concepto: String(fila[4] || ""),
+      cantidad: Number(fila[5] || 0),
+      importe: Number(fila[6] || 0),
+      folio: String(fila[7] || "")
+    }))
+    .sort((a, b) => {
+      const fechaA = new Date(
+        a.fecha.split("/").reverse().join("-")
+      );
+      const fechaB = new Date(
+        b.fecha.split("/").reverse().join("-")
+      );
+      return fechaB - fechaA;
+    });
+}
+
+// =====================================================
+// REGISTRO DE COMPRAS
+// =====================================================
+
+function cobrarCompra() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const venta = ss.getSheetByName("Venta rápida");
+  const alumnos = ss.getSheetByName(STUDENTS_SHEET);
+  const movimientos = ss.getSheetByName(MOVEMENTS_SHEET);
+
+  if (!venta || !alumnos || !movimientos) {
+    SpreadsheetApp.getUi().alert(
+      "No se encontraron todas las hojas necesarias."
+    );
+    return;
+  }
+
+  const bloqueo = LockService.getScriptLock();
+
+  if (!bloqueo.tryLock(10000)) {
+    SpreadsheetApp.getUi().alert(
+      "Hay otra operación en curso. Intenta nuevamente."
+    );
+    return;
+  }
+
+  try {
+    const cuenta = venta.getRange("B4").getValue();
+    const fecha = venta.getRange("B5").getValue();
+    const folio = String(
+      venta.getRange("B6").getDisplayValue()
+    ).trim();
+
+    if (cuenta === "" || cuenta === null) {
+      SpreadsheetApp.getUi().alert(
+        "Primero ingresa el número de cuenta del alumno."
+      );
+      return;
     }
-  ]
+
+    const registrosAlumnos = alumnos
+      .getRange("A4:G253")
+      .getValues();
+
+    const alumno = registrosAlumnos.find(
+      fila =>
+        String(fila[0]).trim() === String(cuenta).trim()
+    );
+
+    if (!alumno) {
+      SpreadsheetApp.getUi().alert(
+        "No se encontró esa cuenta en Alumnos."
+      );
+      return;
+    }
+
+    const nombre = String(alumno[1] || "").trim();
+    const saldo = Number(alumno[6]) || 0;
+    const carrito = venta.getRange("A9:D27").getValues();
+    const productos = [];
+
+    carrito.forEach(fila => {
+      const producto = String(fila[0] || "").trim();
+      const precio = Number(fila[1]) || 0;
+      const cantidad = Number(fila[2]) || 0;
+
+      if (producto && cantidad > 0) {
+        if (!Number.isInteger(cantidad) || precio <= 0) {
+          throw new Error(
+            "Revisa el precio o la cantidad de: " + producto
+          );
+        }
+
+        productos.push({
+          producto,
+          cantidad,
+          importe: precio * cantidad
+        });
+      }
+    });
+
+    if (productos.length === 0) {
+      SpreadsheetApp.getUi().alert(
+        "Agrega al menos un producto y una cantidad."
+      );
+      return;
+    }
+
+    const total = productos.reduce(
+      (suma, p) => suma + p.importe,
+      0
+    );
+
+    if (total > saldo) {
+      SpreadsheetApp.getUi().alert(
+        "Saldo insuficiente.\n" +
+        "Alumno: " + nombre + "\n" +
+        "Saldo disponible: $" + saldo.toFixed(2) + "\n" +
+        "Total de compra: $" + total.toFixed(2)
+      );
+      return;
+    }
+
+    if (!folio) {
+      SpreadsheetApp.getUi().alert(
+        "Falta el folio de venta."
+      );
+      return;
+    }
+
+    const ultimaFila = Math.max(
+      movimientos.getLastRow(),
+      3
+    );
+
+    const existentes = ultimaFila > 3
+      ? movimientos
+          .getRange(4, 1, ultimaFila - 3, 2)
+          .getValues()
+      : [];
+
+    const ocupadas = new Set();
+
+    existentes.forEach((fila, i) => {
+      if (fila[0] !== "" || fila[1] !== "") {
+        ocupadas.add(i + 4);
+      }
+    });
+
+    let filaDestino = 4;
+
+    while (ocupadas.has(filaDestino)) {
+      filaDestino++;
+    }
+
+    if (
+      filaDestino + productos.length - 1 >
+      movimientos.getMaxRows()
+    ) {
+      movimientos.insertRowsAfter(
+        movimientos.getMaxRows(),
+        filaDestino + productos.length - 1 -
+          movimientos.getMaxRows()
+      );
+    }
+
+    productos.forEach((p, i) => {
+      const fila = filaDestino + i;
+
+      movimientos.getRange(fila, 1, 1, 2).setValues([[
+        fecha instanceof Date && !isNaN(fecha.getTime())
+          ? fecha
+          : new Date(),
+        cuenta
+      ]]);
+
+      movimientos.getRange(fila, 4, 1, 3).setValues([[
+        "Compra",
+        p.producto,
+        p.cantidad
+      ]]);
+
+      movimientos.getRange(fila, 8).setValue(folio);
+    });
+
+    SpreadsheetApp.flush();
+
+    venta.getRange("A9:A27").clearContent();
+    venta.getRange("C9:C27").clearContent();
+
+    const numero =
+      Number(folio.match(/\d+$/)?.[0] || 0) + 1;
+
+    const prefijo =
+      folio.match(/^[^\d]*/)?.[0] || "V-";
+
+    venta.getRange("B6").setValue(
+      prefijo + String(numero).padStart(3, "0")
+    );
+
+    SpreadsheetApp.getUi().alert(
+      "¡Compra registrada!\n\n" +
+      "Alumno: " + nombre + "\n" +
+      "Productos: " + productos.length + "\n" +
+      "Total: $" + total.toFixed(2) + "\n" +
+      "Saldo anterior: $" + saldo.toFixed(2) + "\n" +
+      "Folio: " + folio
+    );
+
+  } catch (error) {
+    SpreadsheetApp.getUi().alert(
+      "No se pudo completar la compra:\n" + error.message
+    );
+  } finally {
+    bloqueo.releaseLock();
+  }
+}
+
+// =====================================================
+// SOLICITUDES DE DEPÓSITOS
+// =====================================================
+
+function obtenerOCrearHojaDepositos_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(DEPOSITS_SHEET);
+
+  if (!sh) {
+    sh = ss.insertSheet(DEPOSITS_SHEET);
+  }
+
+  if (sh.getLastRow() === 0) {
+    sh.appendRow([
+      "Folio",
+      "Fecha solicitud",
+      "Cuenta",
+      "Alumno",
+      "Monto",
+      "Archivo ID",
+      "Comprobante",
+      "Estado",
+      "Fecha resolución",
+      "Resuelto por",
+      "Motivo rechazo"
+    ]);
+
+    sh.setFrozenRows(1);
+  }
+
+  return sh;
+}
+
+function obtenerOCrearCarpetaComprobantes_() {
+  const props = PropertiesService.getScriptProperties();
+  const savedId = props.getProperty(
+    "DEPOSIT_RECEIPTS_FOLDER_ID"
+  );
+
+  if (savedId) {
+    try {
+      return DriveApp.getFolderById(savedId);
+    } catch (e) {}
+  }
+
+  const folders = DriveApp.getFoldersByName(
+    RECEIPT_FOLDER_NAME
+  );
+
+  const folder = folders.hasNext()
+    ? folders.next()
+    : DriveApp.createFolder(RECEIPT_FOLDER_NAME);
+
+  props.setProperty(
+    "DEPOSIT_RECEIPTS_FOLDER_ID",
+    folder.getId()
+  );
+
+  return folder;
+}
+
+/**
+ * Registra solicitud y comprobante.
+ * NO abona dinero a la cuenta.
+ */
+function registrarSolicitudDeposito(
+  cuentaInput,
+  codigoInput,
+  montoInput,
+  nombreArchivo,
+  mimeType,
+  base64
+) {
+  const alumno = validarCuentaPrivada_(
+    cuentaInput,
+    codigoInput
+  );
+
+  const monto = Number(montoInput);
+
+  if (
+    !Number.isFinite(monto) ||
+    monto <= 0 ||
+    monto > 1000000
+  ) {
+    throw new Error(
+      "Ingresa un monto válido mayor que cero."
+    );
+  }
+
+  const tipo = String(mimeType || "").toLowerCase();
+
+  const tiposPermitidos = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf"
+  ];
+
+  if (!tiposPermitidos.includes(tipo)) {
+    throw new Error(
+      "El comprobante debe ser JPG, PNG, WEBP o PDF."
+    );
+  }
+
+  const contenido = String(base64 || "");
+
+  if (!contenido) {
+    throw new Error("Adjunta el comprobante de pago.");
+  }
+
+  const bytes = Utilities.base64Decode(contenido);
+
+  if (bytes.length > RECEIPT_MAX_BYTES) {
+    throw new Error(
+      "El comprobante no debe superar 5 MB."
+    );
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    const sh = obtenerOCrearHojaDepositos_();
+
+    const folio =
+      "DEP-" +
+      Utilities.formatDate(
+        new Date(),
+        Session.getScriptTimeZone(),
+        "yyyyMMdd-HHmmss"
+      ) +
+      "-" +
+      Math.floor(100 + Math.random() * 900);
+
+    const safeName = String(
+      nombreArchivo || "comprobante"
+    )
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .slice(0, 100);
+
+    const extension =
+      tipo === "application/pdf" ? ".pdf" :
+      tipo === "image/png" ? ".png" :
+      tipo === "image/webp" ? ".webp" : ".jpg";
+
+    const blob = Utilities.newBlob(
+      bytes,
+      tipo,
+      folio + "-" + (safeName || "comprobante") + extension
+    );
+
+    const folder = obtenerOCrearCarpetaComprobantes_();
+    const file = folder.createFile(blob);
+
+    // El archivo conserva los permisos privados de Drive.
+    sh.appendRow([
+      folio,
+      new Date(),
+      alumno.cuenta,
+      alumno.nombre,
+      monto,
+      file.getId(),
+      file.getUrl(),
+      "Pendiente",
+      "",
+      "",
+      ""
+    ]);
+
+    return {
+      ok: true,
+      folio,
+      mensaje:
+        "Solicitud enviada. El saldo se actualizará cuando La Dulceteria autorice el depósito."
+    };
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =====================================================
+// ADMINISTRACIÓN DE DEPÓSITOS
+// =====================================================
+
+function verDepositosPendientes() {
+  const ui = SpreadsheetApp.getUi();
+  const sh = obtenerOCrearHojaDepositos_();
+
+  if (sh.getLastRow() < 2) {
+    ui.alert("Todavía no hay solicitudes de depósito.");
+    return;
+  }
+
+  const rows = sh
+    .getRange(2, 1, sh.getLastRow() - 1, 11)
+    .getDisplayValues();
+
+  const pendientes = rows.filter(
+    r => r[7] === "Pendiente"
+  );
+
+  if (!pendientes.length) {
+    ui.alert(
+      "No hay depósitos pendientes de autorización."
+    );
+    return;
+  }
+
+  const resumen = pendientes
+    .slice(0, 30)
+    .map(r =>
+      `${r[0]} | ${r[3]} | Cuenta ${r[2]} | $${Number(r[4]).toFixed(2)} | ${r[1]}`
+    )
+    .join("\n");
+
+  ui.alert(
+    "Depósitos pendientes" +
+      (pendientes.length > 30
+        ? ` (mostrando 30 de ${pendientes.length})`
+        : ""),
+    resumen,
+    ui.ButtonSet.OK
+  );
+}
+
+function autorizarDepositoPorFolio() {
+  const ui = SpreadsheetApp.getUi();
+
+  const ask = ui.prompt(
+    "Autorizar depósito",
+    "Escribe el folio de la solicitud:",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (ask.getSelectedButton() !== ui.Button.OK) return;
+
+  const folio = ask.getResponseText().trim();
+
+  if (!folio) {
+    ui.alert("Debes escribir un folio.");
+    return;
+  }
+
+  const sh = obtenerOCrearHojaDepositos_();
+  const row = buscarFilaDeposito_(sh, folio);
+
+  if (!row) {
+    ui.alert("No se encontró ese folio.");
+    return;
+  }
+
+  const confirmacion = sh
+    .getRange(row, 1, 1, 11)
+    .getValues()[0];
+
+  if (confirmacion[7] !== "Pendiente") {
+    ui.alert(
+      "Esta solicitud ya está en estado: " +
+      confirmacion[7]
+    );
+    return;
+  }
+
+  const confirm = ui.alert(
+    "Confirmar abono",
+    "Alumno: " + confirmacion[3] +
+      "\nCuenta: " + confirmacion[2] +
+      "\nMonto: $" + Number(confirmacion[4]).toFixed(2) +
+      "\n\nVerifica que el dinero se haya recibido en el banco. ¿Autorizar?",
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirm !== ui.Button.YES) return;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    const current = sh
+      .getRange(row, 1, 1, 11)
+      .getValues()[0];
+
+    if (current[7] !== "Pendiente") {
+      throw new Error(
+        "La solicitud ya fue procesada por otro usuario."
+      );
+    }
+
+    // Registrar movimiento antes de cambiar el estado.
+    registrarMovimientoDeposito_(
+      String(current[2]),
+      Number(current[4]),
+      String(current[0])
+    );
+
+    sh.getRange(row, 8, 1, 3).setValues([[
+      "Autorizado",
+      new Date(),
+      Session.getActiveUser().getEmail() || "Administrador"
+    ]]);
+
+    SpreadsheetApp.flush();
+
+    ui.alert(
+      "Depósito autorizado.\n" +
+      "Folio: " + current[0] + "\n" +
+      "Monto: $" + Number(current[4]).toFixed(2)
+    );
+
+  } catch (err) {
+    ui.alert(
+      "No se pudo autorizar el depósito:\n" + err.message
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function rechazarDepositoPorFolio() {
+  const ui = SpreadsheetApp.getUi();
+
+  const ask = ui.prompt(
+    "Rechazar depósito",
+    "Escribe el folio de la solicitud:",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (ask.getSelectedButton() !== ui.Button.OK) return;
+
+  const folio = ask.getResponseText().trim();
+
+  if (!folio) {
+    ui.alert("Debes escribir un folio.");
+    return;
+  }
+
+  const sh = obtenerOCrearHojaDepositos_();
+  const row = buscarFilaDeposito_(sh, folio);
+
+  if (!row) {
+    ui.alert("No se encontró ese folio.");
+    return;
+  }
+
+  const current = sh
+    .getRange(row, 1, 1, 11)
+    .getValues()[0];
+
+  if (current[7] !== "Pendiente") {
+    ui.alert(
+      "Esta solicitud ya está en estado: " +
+      current[7]
+    );
+    return;
+  }
+
+  const motivoAsk = ui.prompt(
+    "Motivo del rechazo",
+    "Escribe el motivo del rechazo:",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (motivoAsk.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const motivo = motivoAsk.getResponseText().trim();
+
+  if (!motivo) {
+    ui.alert("El motivo es obligatorio.");
+    return;
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+
+  try {
+    const latest = sh
+      .getRange(row, 1, 1, 11)
+      .getValues()[0];
+
+    if (latest[7] !== "Pendiente") {
+      throw new Error("La solicitud ya fue procesada.");
+    }
+
+    sh.getRange(row, 8, 1, 4).setValues([[
+      "Rechazado",
+      new Date(),
+      Session.getActiveUser().getEmail() || "Administrador",
+      motivo
+    ]]);
+
+    ui.alert(
+      "Solicitud rechazada. El saldo no fue modificado."
+    );
+
+  } catch (err) {
+    ui.alert(
+      "No se pudo rechazar la solicitud:\n" + err.message
+    );
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function buscarFilaDeposito_(sh, folio) {
+  if (sh.getLastRow() < 2) return 0;
+
+  const found = sh
+    .getRange(2, 1, sh.getLastRow() - 1, 1)
+    .createTextFinder(folio)
+    .matchEntireCell(true)
+    .findNext();
+
+  return found ? found.getRow() : 0;
+}
+
+// =====================================================
+// REGISTRAR EL ABONO AUTORIZADO EN MOVIMIENTOS
+// =====================================================
+
+function registrarMovimientoDeposito_(cuenta, monto, folio) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = ss.getSheetByName(MOVEMENTS_SHEET);
+
+  if (!sh) {
+    throw new Error("No se encontró la hoja Movimientos.");
+  }
+
+  const last = Math.max(sh.getLastRow(), 3);
+  const count = last - 3;
+
+  const existing = count > 0
+    ? sh.getRange(4, 1, count, 2).getValues()
+    : [];
+
+  const occupied = new Set();
+
+  existing.forEach((r, i) => {
+    if (r[0] !== "" || r[1] !== "") {
+      occupied.add(i + 4);
+    }
+  });
+
+  let dest = 4;
+
+  while (occupied.has(dest)) {
+    dest++;
+  }
+
+  if (dest > sh.getMaxRows()) {
+    sh.insertRowsAfter(
+      sh.getMaxRows(),
+      dest - sh.getMaxRows()
+    );
+  }
+
+  // Copiar fórmula de C si la fila nueva no tiene fórmula.
+  if (dest > 4 && !sh.getRange(dest, 3).getFormula()) {
+    const formulaC = sh.getRange(dest - 1, 3).getFormula();
+
+    if (formulaC) {
+      sh.getRange(dest - 1, 3).copyTo(
+        sh.getRange(dest, 3),
+        SpreadsheetApp.CopyPasteType.PASTE_FORMULA,
+        false
+      );
+    }
+  }
+
+  sh.getRange(dest, 1, 1, 2).setValues([[
+    new Date(),
+    cuenta
+  ]]);
+
+  sh.getRange(dest, 4, 1, 3).setValues([[
+    "Depósito",
+    "Depósito autorizado",
+    1
+  ]]);
+
+  // El importe autorizado se registra explícitamente en G.
+  sh.getRange(dest, 7).setValue(monto);
+  sh.getRange(dest, 8).setValue(folio);
+
+  SpreadsheetApp.flush();
 }
