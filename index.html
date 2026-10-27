@@ -6,8 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
   <title>La Dulceteria | Mi cuenta escolar</title>
-
-  <meta name="description" content="Consulta fácil y rápida del estado de cuenta escolar de La Dulceteria Tiendita Escolar.">
+  <meta name="description" content="Consulta el estado de cuenta escolar de La Dulceteria Tiendita Escolar.">
   <meta name="theme-color" content="#f7b8d5">
 
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,57 +15,39 @@
 
   <link rel="manifest" href="./manifiesto.webmanifiesto">
   <link rel="icon" href="./descargar.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="./descargar.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="./dulceteria_icon_180.png">
 
   <style>
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      background: #fff8fc;
-      font-family: Arial, sans-serif;
-    }
-
     body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
+      margin: 0;
+      background: #fff8fc;
       color: #203b60;
+      font-family: Arial, sans-serif;
       text-align: center;
     }
-
     main {
-      padding: 24px;
-    }
-
-    p {
-      font-size: 16px;
-    }
-
-    a {
-      color: #d9368b;
+      padding: 32px 20px;
     }
   </style>
 </head>
-
 <body>
   <main>
     <p>Abriendo tu estado de cuenta escolar…</p>
     <p>
-      <a id="abrir" href="https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec">
+      <a href="https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec">
         Toca aquí si no abre automáticamente.
       </a>
     </p>
   </main>
 
   <script>
-    const DESTINO = "https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec";
-
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch(() => {});
     }
 
-    window.location.replace(DESTINO);
+    window.location.replace(
+      "https://script.google.com/macros/s/AKfycbxL42LZ7UmJ5btIKuOi8eqmq1IXQZ3_bG9dH_qQoElVwJJG-kwssK1fY0e4WzvvQ6EO/exec"
+    );
   </script>
 </body>
 </html>
